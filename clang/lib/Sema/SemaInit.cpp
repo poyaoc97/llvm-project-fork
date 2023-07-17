@@ -19,6 +19,7 @@
 #include "clang/Basic/CharInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Designator.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
 #include "clang/Sema/Initialization.h"
@@ -10911,6 +10912,18 @@ QualType Sema::DeduceTemplateSpecializationFromInitializer(
        diag::warn_cxx14_compat_class_template_argument_deduction)
       << TSInfo->getTypeLoc().getSourceRange() << 1 << DeducedType;
 
+  // Warn if the copy deduction candidate is selected in direct-initialization.
+  auto DiagnoseCTADCopy = [&] {
+    if (auto IK = Kind.getKind();
+        IK <= InitializationKind::IK_DirectList &&
+        cast<CXXDeductionGuideDecl>(Best->Function)
+                ->getDeductionCandidateKind() == DeductionCandidate::Copy) {
+      Diag(Kind.getLocation(), diag::warn_ctad_selects_copy)
+          << Kind.getRange() << Inits.front()->isLValue() << DeducedType
+          << !ListInit;
+    }
+  };
+
   // Warn if CTAD was used on a type that does not have any user-defined
   // deduction guides.
   if (!FoundDeductionGuide) {
@@ -10918,6 +10931,9 @@ QualType Sema::DeduceTemplateSpecializationFromInitializer(
          diag::warn_ctad_maybe_unsupported)
         << TemplateName;
     Diag(Template->getLocation(), diag::note_suppress_ctad_maybe_unsupported);
+    DiagnoseCTADCopy();
+  } else if (!PP.getSourceManager().isInSystemHeader(Template->getLocation())) {
+    DiagnoseCTADCopy();
   }
 
   return DeducedType;

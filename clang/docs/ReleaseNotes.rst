@@ -140,6 +140,20 @@ Improvements to Clang's diagnostics
   tautologies like ``x && !x`` and ``!x || x`` in expressions. This also
   makes ``-Winfinite-recursion`` diagnose more cases.
   (`#56035: <https://github.com/llvm/llvm-project/issues/56035>`_).
+- Clang now warns when the class template argument deduction deduces the type to be the same as the initializer
+  of a direct-initialization. Turn this on with ``-Wctad-selects-copy``. If the class template is in a system header
+  and a reachable explicit deduction guide is present, the warning is suppressed.
+  (`#63288 <https://github.com/llvm/llvm-project/issues/63288>`_).
+
+  .. code-block:: c++
+
+    auto vec = std::vector{42};
+    auto v = std::vector{vec}; // no warning, user-defined deduction guides exist
+                               // and the template is in a system header
+
+    std::reverse_iterator it1 = v.rbegin();       // no warning, copy-initialization
+    auto it2 = std::reverse_iterator{v.rbegin()}; // warns, the intent might be the next line
+    auto it3 = std::reverse_iterator<decltype(v.rbegin())>(v.rbegin()); // no warning, no CTAD
 
 Bug Fixes in This Version
 -------------------------

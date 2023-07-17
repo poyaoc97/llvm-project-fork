@@ -1398,6 +1398,10 @@ def NoDeref : DiagGroup<"noderef">;
 def CrossTU : DiagGroup<"ctu">;
 
 def CTADMaybeUnsupported : DiagGroup<"ctad-maybe-unsupported">;
+def CTADSelectsCopy      : DiagGroup<"ctad-selects-copy">;
+def CTADMaybeUnintended  : DiagGroup<"ctad-maybe-unintended", [
+    CTADMaybeUnsupported, CTADSelectsCopy
+  ]>;
 
 def FortifySource : DiagGroup<"fortify-source">;
 

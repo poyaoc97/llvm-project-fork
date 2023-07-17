@@ -2521,6 +2521,10 @@ def warn_ctad_maybe_unsupported : Warning<
   InGroup<CTADMaybeUnsupported>, DefaultIgnore;
 def note_suppress_ctad_maybe_unsupported : Note<
   "add a deduction guide to suppress this warning">;
+def warn_ctad_selects_copy : Warning<
+  "%select{move|copy}0-constructing not wrapping a %1, "
+  "use copy-%select{list-|}2initialization to suppress this warning">,
+  InGroup<CTADSelectsCopy>, DefaultIgnore;
 
 
 // C++14 deduced return types
