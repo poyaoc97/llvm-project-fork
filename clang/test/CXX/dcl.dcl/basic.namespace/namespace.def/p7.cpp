@@ -16,3 +16,6 @@ namespace X {
   inline namespace {} // expected-note {{previous definition}}
   namespace {} // expected-warning {{inline namespace reopened as a non-inline namespace}}
 }
+
+inline namespace std {}
+// expected-error@-1{{namespace 'std' cannot be declared to be inline}}

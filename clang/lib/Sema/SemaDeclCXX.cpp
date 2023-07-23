@@ -11361,6 +11361,14 @@ Decl *Sema::ActOnStartNamespaceDef(Scope *NamespcScope,
 
   NamespaceDecl *PrevNS = nullptr;
   if (II) {
+    // C++ [namespace.std]p7:
+    //   A translation unit shall not declare namespace std to be an inline
+    //   namespace (9.8.2).
+    //
+    // This has to be diagnosed before entering DiagnoseNamespaceInlineMismatch.
+    if (IsInline && II->isStr("std"))
+      Diag(InlineLoc, diag::err_inline_namespace_std)
+          << SourceRange(InlineLoc, InlineLoc.getLocWithOffset(6));
     // C++ [namespace.def]p2:
     //   The identifier in an original-namespace-definition shall not
     //   have been previously defined in the declarative region in
