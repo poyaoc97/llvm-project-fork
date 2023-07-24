@@ -154,6 +154,42 @@ Improvements to Clang's diagnostics
     std::reverse_iterator it1 = v.rbegin();       // no warning, copy-initialization
     auto it2 = std::reverse_iterator{v.rbegin()}; // warns, the intent might be the next line
     auto it3 = std::reverse_iterator<decltype(v.rbegin())>(v.rbegin()); // no warning, no CTAD
+- Added a new warning group ``-Windeterminately-sequenced`` to diagnose indeterminately
+  sequenced accesses amongst the initializations of each function parameter, as is the
+  case from C++17 onwards. Accordingly, ``-Wunsequenced`` no longer falsely diagnoses
+  such accesses as unsequenced.
+  (`#63935 <https://github.com/llvm/llvm-project/issues/63935>`_)
+
+  *Example C++23 Code*:
+
+  .. code-block:: c++
+
+    struct S { int operator[](auto...); };
+    int c{}, d{}, f(int, int = {}),
+        a = f(c++, (++d, f)(!c, !d)),
+        b = S()[f(f(c++)), c++];
+
+  *BEFORE*:
+
+  .. code-block:: text
+
+    <source>:3:12: warning: unsequenced modification and access to 'c' [-Wunsequenced]
+        3 |     a = f(c++, (++d, f)(!c, !d)),
+          |            ^             ~
+    <source>:4:18: warning: multiple unsequenced modifications to 'c' [-Wunsequenced]
+        4 |     b = S()[f(f(c++)), c++];
+          |                  ^      ~~
+
+  *AFTER*:
+
+  .. code-block:: text
+
+    <source>:3:12: warning: indeterminately sequenced modification and access to 'c' [-Windeterminately-sequenced]
+        3 |     a = f(c++, (++d, f)(!c, !d)),
+          |            ^             ~
+    <source>:4:18: warning: multiple indeterminately sequenced modifications to 'c' [-Windeterminately-sequenced]
+        4 |     b = S()[f(f(c++)), c++];
+          |                  ^      ~~
 
 Bug Fixes in This Version
 -------------------------

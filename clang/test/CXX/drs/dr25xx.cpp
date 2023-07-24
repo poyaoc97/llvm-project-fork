@@ -143,3 +143,14 @@ namespace dr2565 { // dr2565: 16 open
 
 #endif
 }
+
+namespace dr2571 { // dr2571: 15
+#if __cplusplus >= 202302L
+struct S { int operator[](auto...); };
+int c{}, d{}, f(int, int = {}),
+    a = S()[c++, (++d, f)(!c, !d)],
+    // expected-warning@-1{{indeterminately sequenced modification and access to 'c'}}
+    b = S()[f(f(c++)), c++];
+    // expected-warning@-1{{multiple indeterminately sequenced modifications to 'c'}}
+#endif
+} // namespace dr2571

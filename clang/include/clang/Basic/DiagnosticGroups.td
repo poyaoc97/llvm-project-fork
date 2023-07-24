@@ -696,8 +696,9 @@ def Varargs : DiagGroup<"varargs">;
 def XorUsedAsPow : DiagGroup<"xor-used-as-pow">;
 
 def Unsequenced : DiagGroup<"unsequenced">;
+def IndeterminatelySequenced : DiagGroup<"indeterminately-sequenced">;
 // GCC name for -Wunsequenced
-def : DiagGroup<"sequence-point", [Unsequenced]>;
+def : DiagGroup<"sequence-point", [Unsequenced, IndeterminatelySequenced]>;
 
 // Preprocessor warnings.
 def AmbiguousMacro : DiagGroup<"ambiguous-macro">;

@@ -2303,6 +2303,12 @@ def warn_unsequenced_mod_mod : Warning<
   "multiple unsequenced modifications to %0">, InGroup<Unsequenced>;
 def warn_unsequenced_mod_use : Warning<
   "unsequenced modification and access to %0">, InGroup<Unsequenced>;
+def warn_indeterminately_sequenced_mod_mod : Warning<
+  "multiple indeterminately sequenced modifications to %0">,
+  InGroup<IndeterminatelySequenced>;
+def warn_indeterminately_sequenced_mod_use : Warning<
+  "indeterminately sequenced modification and access to %0">,
+  InGroup<IndeterminatelySequenced>;
 
 def select_initialized_entity_kind : TextSubstitution<
   "%select{copying variable|copying parameter|initializing template parameter|"
