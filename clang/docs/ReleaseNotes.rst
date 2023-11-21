@@ -140,6 +140,42 @@ Improvements to Clang's diagnostics
   tautologies like ``x && !x`` and ``!x || x`` in expressions. This also
   makes ``-Winfinite-recursion`` diagnose more cases.
   (`#56035: <https://github.com/llvm/llvm-project/issues/56035>`_).
+- Added a new warning group ``-Windeterminately-sequenced`` to diagnose indeterminately
+  sequenced accesses amongst the initializations of each function parameter, as is the
+  case from C++17 onwards. Accordingly, ``-Wunsequenced`` no longer falsely diagnoses
+  such accesses as unsequenced.
+  (`#63935 <https://github.com/llvm/llvm-project/issues/63935>`_)
+
+  *Example C++23 Code*:
+
+  .. code-block:: c++
+
+    struct S { int operator[](auto...); };
+    int c{}, d{}, f(int, int = {}),
+        a = f(c++, (++d, f)(!c, !d)),
+        b = S()[f(f(c++)), c++];
+
+  *BEFORE*:
+
+  .. code-block:: text
+
+    <source>:3:12: warning: unsequenced modification and access to 'c' [-Wunsequenced]
+        3 |     a = f(c++, (++d, f)(!c, !d)),
+          |            ^             ~
+    <source>:4:18: warning: multiple unsequenced modifications to 'c' [-Wunsequenced]
+        4 |     b = S()[f(f(c++)), c++];
+          |                  ^      ~~
+
+  *AFTER*:
+
+  .. code-block:: text
+
+    <source>:3:12: warning: indeterminately sequenced modification and access to 'c' [-Windeterminately-sequenced]
+        3 |     a = f(c++, (++d, f)(!c, !d)),
+          |            ^             ~
+    <source>:4:18: warning: multiple indeterminately sequenced modifications to 'c' [-Windeterminately-sequenced]
+        4 |     b = S()[f(f(c++)), c++];
+          |                  ^      ~~
 
 Bug Fixes in This Version
 -------------------------

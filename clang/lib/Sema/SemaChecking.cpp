@@ -15819,6 +15819,8 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
     };
     SmallVector<Value, 8> Values;
 
+    const SequenceChecker &SC;
+
   public:
     /// A region within an expression which may be sequenced with respect
     /// to some other region.
@@ -15833,7 +15835,9 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
       Seq() : Index(0) {}
     };
 
-    SequenceTree() { Values.push_back(Value(0)); }
+    SequenceTree(const SequenceChecker &SC) : SC(SC) {
+      Values.push_back(Value(0));
+    }
     Seq root() const { return Seq(0); }
 
     /// Create a new sequence of operations, which is an unsequenced
@@ -15859,6 +15863,29 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
         if (C == Target)
           return true;
         C = Values[C].Parent;
+      }
+      return false;
+    }
+
+    /// Determine whether two operations are indeterminately sequenced. This
+    /// operation is asymmetric: \p Cur should be the more recent sequence, and
+    /// \p Old should have been merged into its parent as appropriate.
+    bool isIndeterminatelySequenced(Seq Cur, Seq Old) {
+      unsigned C = representative(Cur.Index);
+      unsigned Target = representative(Old.Index);
+      for (Seq seq : llvm::iterator_range(SC.CallPostfixExprs.rbegin(),
+                                          SC.CallPostfixExprs.rend())) {
+        unsigned Sibling = seq.Index;
+        unsigned Parent = Values[Sibling].Parent;
+        if (Target <= Sibling)
+          continue;
+        if ((Target = Values[Target].Parent) != Parent)
+          continue;
+        while (C >= Target) {
+          if (C == Target)
+            return true;
+          C = Values[C].Parent;
+        }
       }
       return false;
     }
@@ -15915,7 +15942,7 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
   Sema &SemaRef;
 
   /// Sequenced regions within the expression.
-  SequenceTree Tree;
+  SequenceTree Tree = *this;
 
   /// Declaration modifications and references which we have seen.
   UsageInfoMap UsageMap;
@@ -15926,10 +15953,6 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
   /// Filled in with declarations which were modified as a side-effect
   /// (that is, post-increment operations).
   SmallVectorImpl<std::pair<Object, Usage>> *ModAsSideEffect = nullptr;
-
-  /// Expressions to check later. We defer checking these to reduce
-  /// stack usage.
-  SmallVectorImpl<const Expr *> &WorkList;
 
   /// RAII object wrapping the visitation of a sequenced subexpression of an
   /// expression. At the end of this process, the side-effects of the evaluation
@@ -15991,6 +16014,22 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
     bool EvalOK = true;
   } *EvalTracker = nullptr;
 
+  /// RAII object tracking the visitation of CallExpr and that of its
+  /// subexpressions.
+  struct InCallExprArgs {
+    InCallExprArgs(SequenceChecker &SC) : SC(SC) {
+      SC.CallPostfixExprs.push_back(SC.Region);
+    };
+
+    ~InCallExprArgs() { SC.CallPostfixExprs.pop_back(); }
+
+  private:
+    SequenceChecker &SC;
+  };
+
+  /// Only modified by InCallExprArgs
+  SmallVector<SequenceTree::Seq, 4> CallPostfixExprs;
+
   /// Find the object which is produced by the specified expression,
   /// if any.
   Object getObject(const Expr *E, bool Mod) const {
@@ -16019,7 +16058,11 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
   void addUsage(Object O, UsageInfo &UI, const Expr *UsageExpr, UsageKind UK) {
     // Get the old usage for the given object and usage kind.
     Usage &U = UI.Uses[UK];
-    if (!U.UsageExpr || !Tree.isUnsequenced(Region, U.Seq)) {
+    bool FoundUnsequenced = U.UsageExpr && Tree.isUnsequenced(Region, U.Seq);
+    bool FoundIndeterminatelySequenced =
+        U.UsageExpr && SemaRef.LangOpts.CPlusPlus17 &&
+        Tree.isIndeterminatelySequenced(Region, U.Seq);
+    if (!FoundUnsequenced && !FoundIndeterminatelySequenced) {
       // If we have a modification as side effect and are in a sequenced
       // subexpression, save the old Usage so that we can restore it later
       // in SequencedSubexpression::~SequencedSubexpression.
@@ -16042,7 +16085,11 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
       return;
 
     const Usage &U = UI.Uses[OtherKind];
-    if (!U.UsageExpr || !Tree.isUnsequenced(Region, U.Seq))
+    bool FoundUnsequenced = U.UsageExpr && Tree.isUnsequenced(Region, U.Seq);
+    bool FoundIndeterminatelySequenced =
+        U.UsageExpr && SemaRef.LangOpts.CPlusPlus17 &&
+        Tree.isIndeterminatelySequenced(Region, U.Seq);
+    if (!FoundUnsequenced && !FoundIndeterminatelySequenced)
       return;
 
     const Expr *Mod = U.UsageExpr;
@@ -16052,8 +16099,12 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
 
     SemaRef.DiagRuntimeBehavior(
         Mod->getExprLoc(), {Mod, ModOrUse},
-        SemaRef.PDiag(IsModMod ? diag::warn_unsequenced_mod_mod
-                               : diag::warn_unsequenced_mod_use)
+        SemaRef.PDiag(!FoundUnsequenced && FoundIndeterminatelySequenced
+                          ? IsModMod
+                                ? diag::warn_indeterminately_sequenced_mod_mod
+                                : diag::warn_indeterminately_sequenced_mod_use
+                      : IsModMod ? diag::warn_unsequenced_mod_mod
+                                 : diag::warn_unsequenced_mod_use)
             << O << SourceRange(ModOrUse->getExprLoc()));
     UI.Diagnosed = true;
   }
@@ -16112,13 +16163,9 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
   }
 
 public:
-  SequenceChecker(Sema &S, const Expr *E,
-                  SmallVectorImpl<const Expr *> &WorkList)
-      : Base(S.Context), SemaRef(S), Region(Tree.root()), WorkList(WorkList) {
+  SequenceChecker(Sema &S, const Expr *E)
+      : Base(S.Context), SemaRef(S), Region(Tree.root()) {
     Visit(E);
-    // Silence a -Wunused-private-field since WorkList is now unused.
-    // TODO: Evaluate if it can be used, and if not remove it.
-    (void)this->WorkList;
   }
 
   void VisitStmt(const Stmt *S) {
@@ -16459,43 +16506,48 @@ public:
     //   the value computation of its result].
     SequencedSubexpression Sequenced(*this);
     SemaRef.runWithSufficientStackSpace(CE->getExprLoc(), [&] {
+      if (!SemaRef.getLangOpts().CPlusPlus17)
+        return Base::VisitCallExpr(CE);
+
       // C++17 [expr.call]p5
       //   The postfix-expression is sequenced before each expression in the
       //   expression-list and any default argument. [...]
-      SequenceTree::Seq CalleeRegion;
-      SequenceTree::Seq OtherRegion;
-      if (SemaRef.getLangOpts().CPlusPlus17) {
-        CalleeRegion = Tree.allocate(Region);
-        OtherRegion = Tree.allocate(Region);
-      } else {
-        CalleeRegion = Region;
-        OtherRegion = Region;
-      }
-      SequenceTree::Seq OldRegion = Region;
-
-      // Visit the callee expression first.
+      SequenceTree::Seq Parent = Region;
+      SequenceTree::Seq CalleeRegion = Tree.allocate(Parent);
       Region = CalleeRegion;
-      if (SemaRef.getLangOpts().CPlusPlus17) {
+      {
         SequencedSubexpression Sequenced(*this);
-        Visit(CE->getCallee());
-      } else {
-        Visit(CE->getCallee());
+        Visit(isa<CXXOperatorCallExpr>(CE) ? CE->getArg(0) : CE->getCallee());
       }
 
-      // Then visit the argument expressions.
-      Region = OtherRegion;
-      for (const Expr *Argument : CE->arguments())
+      // C++17 [expr.call]p5
+      //   [...] The initialization of a parameter, including every associated
+      //   value computation and side effect, is indeterminately sequenced with
+      //   respect to that of any other parameter.
+      SmallVector<SequenceTree::Seq, 16> Args;
+      auto ArgRange =
+          isa<CXXOperatorCallExpr>(CE)
+              ? llvm::iterator_range(CE->arg_begin() + 1, CE->arg_end())
+              : CE->arguments();
+      InCallExprArgs _(*this);
+      for (const Expr *Argument : ArgRange) {
+        SequencedSubexpression Sequenced(*this);
+        Region = Tree.allocate(Parent);
+        Args.push_back(Region);
         Visit(Argument);
-
-      Region = OldRegion;
-      if (SemaRef.getLangOpts().CPlusPlus17) {
-        Tree.merge(CalleeRegion);
-        Tree.merge(OtherRegion);
       }
+
+      Region = Parent;
+      Tree.merge(CalleeRegion);
+      for (SequenceTree::Seq region : Args)
+        Tree.merge(region);
     });
   }
 
   void VisitCXXOperatorCallExpr(const CXXOperatorCallExpr *CXXOCE) {
+    if (!SemaRef.getLangOpts().CPlusPlus17)
+      return VisitCallExpr(CXXOCE);
+
     // C++17 [over.match.oper]p2:
     //   [...] the operator notation is first transformed to the equivalent
     //   function-call notation as summarized in Table 12 (where @ denotes one
@@ -16506,52 +16558,59 @@ public:
     // From the above only overloaded binary operators and overloaded call
     // operators have sequencing rules in C++17 that we need to handle
     // separately.
-    if (!SemaRef.getLangOpts().CPlusPlus17 ||
-        (CXXOCE->getNumArgs() != 2 && CXXOCE->getOperator() != OO_Call))
-      return VisitCallExpr(CXXOCE);
-
     enum {
       NoSequencing,
       LHSBeforeRHS,
       RHSBeforeLHS,
-      LHSBeforeRest
+      IndeterminatelySequenced
     } SequencingKind;
-    switch (CXXOCE->getOperator()) {
-    case OO_Equal:
-    case OO_PlusEqual:
-    case OO_MinusEqual:
-    case OO_StarEqual:
-    case OO_SlashEqual:
-    case OO_PercentEqual:
-    case OO_CaretEqual:
-    case OO_AmpEqual:
-    case OO_PipeEqual:
-    case OO_LessLessEqual:
-    case OO_GreaterGreaterEqual:
+    if (CXXOCE->isAssignmentOp())
       SequencingKind = RHSBeforeLHS;
-      break;
+    else
+      switch (CXXOCE->getOperator()) {
+      case OO_LessLess:
+      case OO_GreaterGreater:
+      case OO_AmpAmp:
+      case OO_PipePipe:
+      case OO_Comma:
+      case OO_ArrowStar:
+        SequencingKind = LHSBeforeRHS;
+        break;
+      case OO_Subscript:
+        SequencingKind = SemaRef.getLangOpts().CPlusPlus23
+                             ? IndeterminatelySequenced // CWG2571
+                             : LHSBeforeRHS;
+        break;
+      case OO_Call:
+        SequencingKind = IndeterminatelySequenced;
+        break;
+      default:
+        SequencingKind = NoSequencing;
+        break;
+      }
 
-    case OO_LessLess:
-    case OO_GreaterGreater:
-    case OO_AmpAmp:
-    case OO_PipePipe:
-    case OO_Comma:
-    case OO_ArrowStar:
-    case OO_Subscript:
-      SequencingKind = LHSBeforeRHS;
-      break;
+    if (SequencingKind == NoSequencing) {
+      SequenceTree::Seq Parent = Region;
+      SequenceTree::Seq CalleeRegion = Tree.allocate(Parent);
+      SequenceTree::Seq OtherRegion = Tree.allocate(Parent);
 
-    case OO_Call:
-      SequencingKind = LHSBeforeRest;
-      break;
+      // Visit the callee expression first.
+      Region = CalleeRegion;
+      {
+        SequencedSubexpression Sequenced(*this);
+        Visit(CXXOCE->getCallee());
+      }
 
-    default:
-      SequencingKind = NoSequencing;
-      break;
+      // Then visit the argument expressions.
+      Region = OtherRegion;
+      for (const Expr *Argument : CXXOCE->arguments())
+        Visit(Argument);
+
+      Region = Parent;
+      Tree.merge(CalleeRegion);
+      Tree.merge(OtherRegion);
+      return;
     }
-
-    if (SequencingKind == NoSequencing)
-      return VisitCallExpr(CXXOCE);
 
     // This is a call, so all subexpressions are sequenced before the result.
     SequencedSubexpression Sequenced(*this);
@@ -16559,63 +16618,31 @@ public:
     SemaRef.runWithSufficientStackSpace(CXXOCE->getExprLoc(), [&] {
       assert(SemaRef.getLangOpts().CPlusPlus17 &&
              "Should only get there with C++17 and above!");
-      assert((CXXOCE->getNumArgs() == 2 || CXXOCE->getOperator() == OO_Call) &&
-             "Should only get there with an overloaded binary operator"
-             " or an overloaded call operator!");
 
-      if (SequencingKind == LHSBeforeRest) {
-        assert(CXXOCE->getOperator() == OO_Call &&
-               "We should only have an overloaded call operator here!");
-
-        // This is very similar to VisitCallExpr, except that we only have the
-        // C++17 case. The postfix-expression is the first argument of the
-        // CXXOperatorCallExpr. The expressions in the expression-list, if any,
-        // are in the following arguments.
-        //
-        // Note that we intentionally do not visit the callee expression since
-        // it is just a decayed reference to a function.
-        SequenceTree::Seq PostfixExprRegion = Tree.allocate(Region);
-        SequenceTree::Seq ArgsRegion = Tree.allocate(Region);
-        SequenceTree::Seq OldRegion = Region;
-
+      if (SequencingKind == IndeterminatelySequenced) {
+        assert((CXXOCE->getOperator() == OO_Subscript ||
+                CXXOCE->getOperator() == OO_Call) &&
+               "We should only have an overloaded call or subscript operator "
+               "here!");
         assert(CXXOCE->getNumArgs() >= 1 &&
-               "An overloaded call operator must have at least one argument"
-               " for the postfix-expression!");
-        const Expr *PostfixExpr = CXXOCE->getArgs()[0];
-        llvm::ArrayRef<const Expr *> Args(CXXOCE->getArgs() + 1,
-                                          CXXOCE->getNumArgs() - 1);
-
-        // Visit the postfix-expression first.
-        {
-          Region = PostfixExprRegion;
-          SequencedSubexpression Sequenced(*this);
-          Visit(PostfixExpr);
-        }
-
-        // Then visit the argument expressions.
-        Region = ArgsRegion;
-        for (const Expr *Arg : Args)
-          Visit(Arg);
-
-        Region = OldRegion;
-        Tree.merge(PostfixExprRegion);
-        Tree.merge(ArgsRegion);
-      } else {
-        assert(CXXOCE->getNumArgs() == 2 &&
-               "Should only have two arguments here!");
-        assert((SequencingKind == LHSBeforeRHS ||
-                SequencingKind == RHSBeforeLHS) &&
-               "Unexpected sequencing kind!");
-
-        // We do not visit the callee expression since it is just a decayed
-        // reference to a function.
-        const Expr *E1 = CXXOCE->getArg(0);
-        const Expr *E2 = CXXOCE->getArg(1);
-        if (SequencingKind == RHSBeforeLHS)
-          std::swap(E1, E2);
-
-        return VisitSequencedExpressions(E1, E2);
+               "An overloaded call or subscript operator must have at least "
+               "one argument for the postfix-expression!");
+        return VisitCallExpr(CXXOCE);
       }
+      assert(CXXOCE->getNumArgs() == 2 &&
+             "Should only have two arguments here!");
+      assert(
+          (SequencingKind == LHSBeforeRHS || SequencingKind == RHSBeforeLHS) &&
+          "Unexpected sequencing kind!");
+
+      // We do not visit the callee expression since it is just a decayed
+      // reference to a function.
+      const Expr *E1 = CXXOCE->getArg(0);
+      const Expr *E2 = CXXOCE->getArg(1);
+      if (SequencingKind == RHSBeforeLHS)
+        std::swap(E1, E2);
+
+      return VisitSequencedExpressions(E1, E2);
     });
   }
 
@@ -16623,12 +16650,28 @@ public:
     // This is a call, so all subexpressions are sequenced before the result.
     SequencedSubexpression Sequenced(*this);
 
-    if (!CCE->isListInitialization())
-      return VisitExpr(CCE);
+    SequenceTree::Seq Parent = Region;
+    if (!CCE->isListInitialization()) {
+      if (!SemaRef.getLangOpts().CPlusPlus17)
+        return VisitExpr(CCE);
+
+      SmallVector<SequenceTree::Seq, 8> Args;
+      InCallExprArgs _(*this);
+      for (const Expr *Argument : CCE->arguments()) {
+        SequencedSubexpression Sequenced(*this);
+        Region = Tree.allocate(Parent);
+        Args.push_back(Region);
+        Visit(Argument);
+      }
+
+      Region = Parent;
+      for (SequenceTree::Seq region : Args)
+        Tree.merge(region);
+      return;
+    }
 
     // In C++11, list initializations are sequenced.
     SmallVector<SequenceTree::Seq, 32> Elts;
-    SequenceTree::Seq Parent = Region;
     for (CXXConstructExpr::const_arg_iterator I = CCE->arg_begin(),
                                               E = CCE->arg_end();
          I != E; ++I) {
@@ -16641,6 +16684,26 @@ public:
     Region = Parent;
     for (unsigned I = 0; I < Elts.size(); ++I)
       Tree.merge(Elts[I]);
+  }
+
+  void VisitCXXParenListInitExpr(const CXXParenListInitExpr *PLIE) {
+    // This is a call, so all subexpressions are sequenced before the result.
+    SequencedSubexpression Sequenced(*this);
+
+    SequenceTree::Seq Parent = Region;
+      SmallVector<SequenceTree::Seq, 16> Args;
+      InCallExprArgs _(*this);
+      for (const Expr *Argument : PLIE->getInitExprs()) {
+        SequencedSubexpression Sequenced(*this);
+        Region = Tree.allocate(Parent);
+        Args.push_back(Region);
+        Visit(Argument);
+      }
+
+      Region = Parent;
+      for (SequenceTree::Seq region : Args)
+        Tree.merge(region);
+      return;
   }
 
   void VisitInitListExpr(const InitListExpr *ILE) {
@@ -16669,12 +16732,7 @@ public:
 } // namespace
 
 void Sema::CheckUnsequencedOperations(const Expr *E) {
-  SmallVector<const Expr *, 8> WorkList;
-  WorkList.push_back(E);
-  while (!WorkList.empty()) {
-    const Expr *Item = WorkList.pop_back_val();
-    SequenceChecker(*this, Item, WorkList);
-  }
+  SequenceChecker(*this, E);
 }
 
 void Sema::CheckCompletedExpr(Expr *E, SourceLocation CheckLoc,

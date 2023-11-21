@@ -1,7 +1,9 @@
 // RUN: %clang_cc1 -fsyntax-only -verify=cxx11 -std=c++11 -Wno-unused -Wno-uninitialized \
-// RUN:            -Wunsequenced -Wno-c++17-extensions -Wno-c++14-extensions %s
-// RUN: %clang_cc1 -fsyntax-only -verify=cxx17 -std=c++17 -Wno-unused -Wno-uninitialized \
-// RUN:            -Wunsequenced -Wno-c++17-extensions -Wno-c++14-extensions %s
+// RUN:            -Wunsequenced -Windeterminately-sequenced -Wno-c++17-extensions -Wno-c++14-extensions %s
+// RUN: %clang_cc1 -fsyntax-only -verify=since-cxx17 -std=c++17 -Wno-unused -Wno-uninitialized \
+// RUN:            -Wunsequenced -Windeterminately-sequenced %s
+// RUN: %clang_cc1 -fsyntax-only -verify=since-cxx17 -std=c++23 -Wno-unused -Wno-uninitialized \
+// RUN:            -Wunsequenced -Windeterminately-sequenced %s
 
 int f(int, int = 0);
 int g1();
@@ -20,17 +22,17 @@ void test() {
   int xs[10];
   ++a = 0; // ok
   a + ++a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-           // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+           // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   a = ++a; // ok
   a + a++; // cxx11-warning {{unsequenced modification and access to 'a'}}
-           // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+           // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   a = a++; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
   ++ ++a; // ok
   (a++, a++); // ok
   ++a + ++a; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-             // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+             // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   a++ + a++; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-             // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+             // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   (a++, a) = 0; // ok, increment is sequenced before value computation of LHS
   a = xs[++a]; // ok
   a = xs[a++]; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
@@ -40,15 +42,15 @@ void test() {
   a = (a++, a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
   f(a, a); // ok
   f(a = 0, a); // cxx11-warning {{unsequenced modification and access to 'a'}}
-               // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+               // since-cxx17-warning@-1 {{indeterminately sequenced modification and access to 'a'}}
   f(a, a += 0); // cxx11-warning {{unsequenced modification and access to 'a'}}
-                // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                // since-cxx17-warning@-1 {{indeterminately sequenced modification and access to 'a'}}
   f(a = 0, a = 0); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                   // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                   // since-cxx17-warning@-1 {{multiple indeterminately sequenced modifications to 'a'}}
   a = f(++a); // ok
   a = f(a++); // ok
   a = f(++a, a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                   // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                   // since-cxx17-warning@-1 {{multiple indeterminately sequenced modifications to 'a'}}
 
   // Compound assignment "A OP= B" is equivalent to "A = A OP B" except that A
   // is evaluated only once.
@@ -59,51 +61,51 @@ void test() {
 
   A agg1 = { a++, a++ }; // ok
   A agg2 = { a++ + a, a++ }; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                             // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                             // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   S str1(a++, a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                    // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                    // since-cxx17-warning@-1 {{multiple indeterminately sequenced modifications to 'a'}}
   S str2 = { a++, a++ }; // ok
   S str3 = { a++ + a, a++ }; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                             // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                             // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   struct Z { A a; S s; } z = { { ++a, ++a }, { ++a, ++a } }; // ok
   a = S { ++a, a++ }.n; // ok
   A { ++a, a++ }.x; // ok
   a = A { ++a, a++ }.x; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
   A { ++a, a++ }.x + A { ++a, a++ }.y; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                                       // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                                       // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
 
   (xs[2] && (a = 0)) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                          // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                          // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   (0 && (a = 0)) + a; // ok
   (1 && (a = 0)) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                      // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                      // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   (xs[3] || (a = 0)) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                          // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                          // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   (0 || (a = 0)) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                      // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                      // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   (1 || (a = 0)) + a; // ok
 
   (xs[4] ? a : ++a) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                         // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                         // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   (0 ? a : ++a) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                     // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                     // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   (1 ? a : ++a) + a; // ok
   (0 ? a : a++) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                     // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                     // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   (1 ? a : a++) + a; // ok
   (xs[5] ? ++a : ++a) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                           // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                           // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   (++a, xs[6] ? ++a : 0) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                              // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                              // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   // Here, the read of the fourth 'a' might happen before or after the write to
   // the second 'a'.
   a += (a++, a) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                     // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                     // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   a = a++ && a; // ok
 
@@ -119,20 +121,20 @@ void test() {
 
   // This has undefined behavior if a != 0.
   (a && a++) + a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-                  // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+                  // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
 
   // FIXME: Don't warn here.
   (xs[7] && ++a) * (!xs[7] && ++a); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                                    // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                                    // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
 
   xs[0] = (a = 1, a); // ok
   (a -= 128) &= 128; // ok
   ++a += 1; // ok
 
   xs[8] ? ++a + a++ : 0; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                         // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                         // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   xs[8] ? 0 : ++a + a++; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                         // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                         // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   xs[8] ? ++a : a++; // no-warning
   xs[8] ? a+=1 : a+= 2; // no-warning
   (xs[8] ? a+=1 : a+= 2) = a; // cxx11-warning {{unsequenced modification and access to 'a'}}
@@ -147,9 +149,9 @@ void test() {
   (true ? a : a+=2) = a; // no-warning
 
   xs[8] && (++a + a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                        // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                        // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   xs[8] || (++a + a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                        // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                        // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
 
   ((a++, false) || (a++, false)); // no-warning PR39779
   ((a++, true) && (a++, true)); // no-warning PR39779
@@ -175,17 +177,17 @@ void test() {
   a = (false || ++a); // no-warning
 
   (a++) | (a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                 // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                 // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   (a++) & (a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                 // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                 // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   (a++) ^ (a++); // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                 // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                 // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
 
   (__builtin_classify_type(++a) ? 1 : 0) + ++a; // ok
   (__builtin_constant_p(++a) ? 1 : 0) + ++a; // ok
   (__builtin_object_size(&(++a, a), 0) ? 1 : 0) + ++a; // ok
   (__builtin_expect(++a, 0) ? 1 : 0) + ++a; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-                                            // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+                                            // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
 
 
   int *p = xs;
@@ -194,7 +196,7 @@ void test() {
   (i++, xs)[i++]; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
   (++i, xs)[++i]; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
   (i, xs)[++i + ++i]; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
-                      // cxx17-warning@-1 {{multiple unsequenced modifications to 'i'}}
+                      // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'i'}}
   p++[p == xs]; // cxx11-warning {{unsequenced modification and access to 'p'}}
   ++p[p++ == xs]; // cxx11-warning {{unsequenced modification and access to 'p'}}
 
@@ -205,9 +207,9 @@ void test() {
   (PtrMem = &S::x ,ps)->*(PtrMem); // cxx11-warning {{unsequenced modification and access to 'PtrMem'}}
   (PtrMem = &S::x ,ps)->*(PtrMem = &S::x); // cxx11-warning {{multiple unsequenced modifications to 'PtrMem'}}
   (PtrMem = nullptr) == (PtrMem = nullptr); // cxx11-warning {{multiple unsequenced modifications to 'PtrMem'}}
-                                            // cxx17-warning@-1 {{multiple unsequenced modifications to 'PtrMem'}}
+                                            // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'PtrMem'}}
   (PtrMem = nullptr) == PtrMem; // cxx11-warning {{unsequenced modification and access to 'PtrMem'}}
-                                // cxx17-warning@-1 {{unsequenced modification and access to 'PtrMem'}}
+                                // since-cxx17-warning@-1 {{unsequenced modification and access to 'PtrMem'}}
 
   i++ << i++; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
   ++i << ++i; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
@@ -218,13 +220,13 @@ void test() {
   i++ >> i; // cxx11-warning {{unsequenced modification and access to 'i'}}
   i >> i++; // cxx11-warning {{unsequenced modification and access to 'i'}}
   (i++ << i) + i; // cxx11-warning {{unsequenced modification and access to 'i'}}
-                  // cxx17-warning@-1 {{unsequenced modification and access to 'i'}}
+                  // since-cxx17-warning@-1 {{unsequenced modification and access to 'i'}}
   (i++ << i) << i++; // cxx11-warning {{unsequenced modification and access to 'i'}}
 
   ++i = i++; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
   i = i+= 1; // no-warning
   i = i++ + ++i; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
-                 // cxx17-warning@-1 {{multiple unsequenced modifications to 'i'}}
+                 // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'i'}}
   ++i += ++i; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
   ++i += i++; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
   (i++, i) += ++i; // cxx11-warning {{multiple unsequenced modifications to 'i'}}
@@ -257,15 +259,18 @@ void test() {
                                   // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
 
   (i++, f)(i++, 42); // cxx11-warning {{multiple unsequenced modifications to 'i'}}
+  f((++i, f)(i++, j++), ++j); // cxx11-warning {{multiple unsequenced modifications to 'i'}}
+                              // cxx11-warning@-1 {{multiple unsequenced modifications to 'j'}}
+                              // since-cxx17-warning@-2 {{multiple indeterminately sequenced modifications to 'j'}}
   (i++ + i++, f)(42, 42); // cxx11-warning {{multiple unsequenced modifications to 'i'}}
-                          // cxx17-warning@-1 {{multiple unsequenced modifications to 'i'}}
+                          // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'i'}}
   int (*pf)(int, int);
   (pf = f)(pf != nullptr, pf != nullptr); // cxx11-warning {{unsequenced modification and access to 'pf'}}
   pf((pf = f) != nullptr, 42); // cxx11-warning {{unsequenced modification and access to 'pf'}}
   f((pf = f, 42), (pf = f, 42)); // cxx11-warning {{multiple unsequenced modifications to 'pf'}}
-                                 // cxx17-warning@-1 {{multiple unsequenced modifications to 'pf'}}
+                                 // since-cxx17-warning@-1 {{multiple indeterminately sequenced modifications to 'pf'}}
   pf((pf = f) != nullptr, pf == nullptr); // cxx11-warning {{unsequenced modification and access to 'pf'}}
-                                          // cxx17-warning@-1 {{unsequenced modification and access to 'pf'}}
+                                          // since-cxx17-warning@-1 {{indeterminately sequenced modification and access to 'pf'}}
 }
 
 namespace PR20819 {
@@ -283,7 +288,11 @@ namespace overloaded_operators {
     E &operator=(E &);
     E operator()(E);
     E operator()(E, E);
+#if __cplusplus >= 202302L
+    E operator[](auto...);
+#else
     E operator[](E);
+#endif
   } e;
   // Binary operators with unsequenced operands.
   E operator+(E,E);
@@ -327,47 +336,47 @@ namespace overloaded_operators {
     // Binary operators with unsequenced operands.
     ((void)i++,e) + ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) - ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) * ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) / ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) % ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) ^ ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) & ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) | ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
 
     ((void)i++,e) < ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) > ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) == ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) != ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) <= ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
     ((void)i++,e) >= ((void)i++,e);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
 
     // Binary operators where the RHS is sequenced before the LHS in C++17.
     ((void)i++,e) = ((void)i++,e);
@@ -395,7 +404,7 @@ namespace overloaded_operators {
 
     operator+=(((void)i++,e), ((void)i++,e));
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple indeterminately sequenced modifications to 'i'}}
 
     // Binary operators where the LHS is sequenced before the RHS in C++17.
     ((void)i++,e) << ((void)i++,e);
@@ -413,16 +422,21 @@ namespace overloaded_operators {
 
     operator<<(((void)i++,e), ((void)i++,e));
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple indeterminately sequenced modifications to 'i'}}
 
+#if __cplusplus >= 202302L
+    ((void)i++,e)[((void)i++,e), ++i];
+    // since-cxx17-warning@-1 {{multiple indeterminately sequenced modifications to 'i'}}
+#else
     ((void)i++,e)[((void)i++,e)];
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
+#endif
 
     ((void)i++,e)(((void)i++,e));
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
     e(((void)i++,e), ((void)i++,e));
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple indeterminately sequenced modifications to 'i'}}
 
     ((void)i++,e).operator()(((void)i++,e));
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
@@ -442,7 +456,7 @@ namespace PR35340 {
 
     operator<<(operator<<(s, i++), i++);
     // cxx11-warning@-1 {{multiple unsequenced modifications to 'i'}}
-    // cxx17-warning@-2 {{multiple unsequenced modifications to 'i'}}
+    // since-cxx17-warning@-2 {{multiple indeterminately sequenced modifications to 'i'}}
   }
 }
 
@@ -459,9 +473,9 @@ struct S1 {
 
 void S1::member_f(S1 &s) {
   ++a + ++a; // cxx11-warning {{multiple unsequenced modifications to 'a'}}
-             // cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
+             // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'a'}}
   a + ++a; // cxx11-warning {{unsequenced modification and access to 'a'}}
-           // cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
+           // since-cxx17-warning@-1 {{unsequenced modification and access to 'a'}}
   ++a + ++b; // no-warning
   a + ++b; // no-warning
 
@@ -478,9 +492,9 @@ void S1::member_f(S1 &s) {
 
   // TODO Warn here for bit-fields in the same memory location.
   ++bf1 + ++bf1; // cxx11-warning {{multiple unsequenced modifications to 'bf1'}}
-                 // cxx17-warning@-1 {{multiple unsequenced modifications to 'bf1'}}
+                 // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'bf1'}}
   bf1 + ++bf1; // cxx11-warning {{unsequenced modification and access to 'bf1'}}
-               // cxx17-warning@-1 {{unsequenced modification and access to 'bf1'}}
+               // since-cxx17-warning@-1 {{unsequenced modification and access to 'bf1'}}
   ++bf1 + ++bf2; // no-warning TODO {{multiple unsequenced modifications to}}
   bf1 + ++bf2; // no-warning TODO {{unsequenced modification and access to}}
 
@@ -506,12 +520,12 @@ void S1::member_f(S1 &s) {
   ++s1_ref.a + d_ref.b; // no-warning
 
   ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-             // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+             // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
   ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-           // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+           // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
   ++s.x + x; // no-warning TODO {{unsequenced modification and access to static member 'x' of 'S1'}}
   ++this->x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-                 // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+                 // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
   ++d_ref.x + ++S1::x; // no-warning TODO {{unsequenced modification and access to static member 'x' of 'S1'}}
 }
 
@@ -629,9 +643,9 @@ void reference_f() {
   // Make sure we handle reference cycles.
   int &ref_cycle = ref_cycle;
   ++ref_cycle + ++ref_cycle; // cxx11-warning {{multiple unsequenced modifications to 'ref_cycle'}}
-                             // cxx17-warning@-1 {{multiple unsequenced modifications to 'ref_cycle'}}
+                             // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'ref_cycle'}}
   ref_cycle + ++ref_cycle; // cxx11-warning {{unsequenced modification and access to 'ref_cycle'}}
-                           // cxx17-warning@-1 {{unsequenced modification and access to 'ref_cycle'}}
+                           // since-cxx17-warning@-1 {{unsequenced modification and access to 'ref_cycle'}}
 }
 } // namespace references
 
@@ -655,9 +669,9 @@ void testa() {
   {
     auto [x, y] = a;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
     ++x + ++a.x; // no-warning
@@ -666,9 +680,9 @@ void testa() {
   {
     auto &[x, y] = a;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
     ++x + ++a.x; // no-warning TODO
@@ -680,9 +694,9 @@ void testb() {
   {
     auto [x, y] = b;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
     ++x + ++b[0]; // no-warning
@@ -691,9 +705,9 @@ void testb() {
   {
     auto &[x, y] = b;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
     ++x + ++b[0]; // no-warning TODO
@@ -705,18 +719,18 @@ void testc() {
   {
     auto [x, y] = c;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
   }
   {
     auto &[x, y] = c;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
   }
@@ -726,9 +740,9 @@ void testd() {
   {
     auto [x, y] = d;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
     ++x + ++d.x; // no-warning
@@ -737,9 +751,9 @@ void testd() {
   {
     auto &[x, y] = d;
     ++x + ++x; // cxx11-warning {{multiple unsequenced modifications to 'x'}}
-               // cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
+               // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'x'}}
     ++x + x; // cxx11-warning {{unsequenced modification and access to 'x'}}
-             // cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
+             // since-cxx17-warning@-1 {{unsequenced modification and access to 'x'}}
     ++x + ++y; // no-warning
     ++x + y; // no-warning
     ++x + ++d.x; // no-warning TODO
@@ -783,13 +797,13 @@ int Foo<X>::Run() {
 
   foo(num++, num++);
   // cxx11-warning@-1 {{multiple unsequenced modifications to 'num'}}
-  // cxx17-warning@-2 {{multiple unsequenced modifications to 'num'}}
+  // since-cxx17-warning@-2 {{multiple indeterminately sequenced modifications to 'num'}}
   return 1;
 }
 
 int x = Foo<int>().Run();
 // cxx11-note@-1 {{in instantiation of member function 'templates::Foo<int>::Run'}}
-// cxx17-note@-2 {{in instantiation of member function 'templates::Foo<int>::Run'}}
+// since-cxx17-note@-2 {{in instantiation of member function 'templates::Foo<int>::Run'}}
 
 
 template <typename T>
@@ -806,9 +820,9 @@ int z = Run2<E>();
 template <typename T> int var = sizeof(T);
 void test_var() {
   var<int>++ + var<int>++; // cxx11-warning {{multiple unsequenced modifications to 'var<int>'}}
-                           // cxx17-warning@-1 {{multiple unsequenced modifications to 'var<int>'}}
+                           // since-cxx17-warning@-1 {{multiple unsequenced modifications to 'var<int>'}}
   var<int>++ + var<int>; // cxx11-warning {{unsequenced modification and access to 'var<int>'}}
-                         // cxx17-warning@-1 {{unsequenced modification and access to 'var<int>'}}
+                         // since-cxx17-warning@-1 {{unsequenced modification and access to 'var<int>'}}
   int &r = var<int>;
   r++ + var<int>++; // no-warning TODO {{multiple unsequenced modifications to 'var<int>'}}
   r++ + var<long>++; // no-warning
