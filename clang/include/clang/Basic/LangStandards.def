@@ -181,12 +181,14 @@ LANGSTANDARD(cxx26, "c++2c",
              LineComment | CPlusPlus | CPlusPlus11 | CPlusPlus14 | CPlusPlus17 |
              CPlusPlus20 | CPlusPlus23 | CPlusPlus26 | Digraphs | HexFloat)
 LANGSTANDARD_ALIAS(cxx26, "c++26")
+LANGSTANDARD_ALIAS(cxx26, "c++latest")
 
 LANGSTANDARD(gnucxx26, "gnu++2c",
              CXX, "Working draft for C++2c with GNU extensions",
              LineComment | CPlusPlus | CPlusPlus11 | CPlusPlus14 | CPlusPlus17 |
              CPlusPlus20 | CPlusPlus23 | CPlusPlus26 | Digraphs | HexFloat | GNUMode)
 LANGSTANDARD_ALIAS(gnucxx26, "gnu++26")
+LANGSTANDARD_ALIAS(gnucxx26, "gnu++latest")
 
 // OpenCL
 LANGSTANDARD(opencl10, "cl1.0",

@@ -105,10 +105,11 @@ LangStandard::Kind clang::getDefaultLanguageStandard(clang::Language Lang,
     // The PS4 uses C99 as the default C standard.
     if (T.isPS4())
       return LangStandard::lang_gnu99;
-    return LangStandard::lang_gnu17;
+    return LangStandard::lang_c2y;
   case Language::ObjC:
     return LangStandard::lang_gnu11;
   case Language::CXX:
+    return LangStandard::lang_cxx26;
   case Language::ObjCXX:
   case Language::CUDA:
   case Language::HIP:

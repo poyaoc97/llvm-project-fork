@@ -521,6 +521,17 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   Args.addAllArgs(CmdArgs, {options::OPT_L, options::OPT_u});
 
+  if (ToolChain.GetCXXStdlibType(Args) == ToolChain::CST_Libcxx) {
+    SmallString<128> LibcxxDir(ToolChain.getDriver().Dir);
+    llvm::sys::path::append(LibcxxDir, "..", "lib");
+    const char *opt = Args.MakeArgString("-L" + LibcxxDir);
+    CmdArgs.push_back(opt);
+    if (!Args.hasArg(options::OPT_static_libstdcxx) &&
+        !Args.hasArg(options::OPT_static)) {
+      CmdArgs.append({"-rpath", opt + 2});
+    }
+  }
+
   ToolChain.AddFilePathLibArgs(Args, CmdArgs);
 
   if (D.isUsingLTO()) {

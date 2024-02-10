@@ -125,7 +125,7 @@ if(APPLE)
   set(DARWIN_osx_BUILTIN_MIN_VER 10.7)
   set(DARWIN_osx_BUILTIN_MIN_VER_FLAG
       -mmacosx-version-min=${DARWIN_osx_BUILTIN_MIN_VER})
-  set(DARWIN_osx_BUILTIN_ALL_POSSIBLE_ARCHS ${X86} ${X86_64})
+  set(DARWIN_osx_BUILTIN_ALL_POSSIBLE_ARCHS ${X86_64})
   # Add support for arm64 macOS if available in SDK.
   foreach(arch ${ARM64})
     sdk_has_arch_support(${DARWIN_osx_SYSROOT} macosx ${arch} MACOS_ARM_SUPPORT)
